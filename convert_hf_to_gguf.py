@@ -109,6 +109,7 @@ class ModelBase:
     is_mistral_format: bool = False
     disable_mistral_community_chat_template: bool = False
     sentence_transformers_dense_modules: bool = False
+    force_embedding: bool = False
 
     def __init__(self, dir_model: Path, ftype: gguf.LlamaFileType, fname_out: Path, *, is_big_endian: bool = False,
                  use_temp_file: bool = False, eager: bool = False,
@@ -116,7 +117,8 @@ class ModelBase:
                  split_max_tensors: int = 0, split_max_size: int = 0, dry_run: bool = False,
                  small_first_shard: bool = False, hparams: dict[str, Any] | None = None, remote_hf_model_id: str | None = None,
                  disable_mistral_community_chat_template: bool = False,
-                 sentence_transformers_dense_modules: bool = False):
+                 sentence_transformers_dense_modules: bool = False,
+                 force_embedding: bool = False):
         if type(self) is ModelBase or \
                 type(self) is TextModel or \
                 type(self) is MmprojModel:
@@ -135,6 +137,7 @@ class ModelBase:
         self.dry_run = dry_run
         self.remote_hf_model_id = remote_hf_model_id
         self.sentence_transformers_dense_modules = sentence_transformers_dense_modules
+        self.force_embedding = force_embedding
         self.hparams = ModelBase.load_hparams(self.dir_model, self.is_mistral_format) if hparams is None else hparams
         self.model_tensors = self.index_tensors(remote_hf_model_id=remote_hf_model_id)
         self.metadata_override = metadata_override
@@ -4247,6 +4250,7 @@ class Qwen3Model(Qwen2Model):
 
     # extra logic for rerank models
     is_rerank: bool = False
+    is_embedding: bool = False
     is_tied_embeddings: bool = False
     token_false_id: int | None = None
     token_true_id: int | None = None
@@ -4258,15 +4262,23 @@ class Qwen3Model(Qwen2Model):
         hparams = ModelBase.load_hparams(self.dir_model, is_mistral_format=False)
         self.origin_hf_arch = hparams.get('architectures', [None])[0]
 
-        # a bit hacky, but currently the only way to detect if this is a rerank model
-        # ref: https://huggingface.co/Qwen/Qwen3-Reranker-0.6B
-        readme_path = self.dir_model / "README.md"
-        readme_text = ""
-        if readme_path.exists():
-            with readme_path.open("r", encoding="utf-8") as f:
-                readme_text = f.read()
-        if "# Qwen3-Reranker" in readme_text:
-            self._find_rerank_config()
+        # Check if embedding flag was explicitly set
+        if self.force_embedding:
+            logger.info("force_embedding flag is set, treating as embedding model")
+            self.is_embedding = True
+        else:
+            # a bit hacky, but currently the only way to detect if this is a rerank model
+            # ref: https://huggingface.co/Qwen/Qwen3-Reranker-0.6B
+            readme_path = self.dir_model / "README.md"
+            readme_text = ""
+            if readme_path.exists():
+                with readme_path.open("r", encoding="utf-8") as f:
+                    readme_text = f.read()
+            if "# Qwen3-Reranker" in readme_text:
+                self._find_rerank_config()
+            # Detect embedding models (e.g., VoyageAI models)
+            elif "embedding model" in readme_text.lower() or "text embedding" in readme_text.lower():
+                self.is_embedding = True
 
     def set_vocab(self):
         # deal with intern-s1-mini
@@ -4299,6 +4311,9 @@ class Qwen3Model(Qwen2Model):
                             "<|im_start|>user\n<Instruct>: Given a web search query, retrieve relevant passages that answer the query\n<Query>: {query}\n<Document>: {document}<|im_end|>\n"
                             "<|im_start|>assistant\n<think>\n\n</think>\n\n"
             }])
+        elif self.is_embedding:
+            logger.info("Setting pooling type to MEAN for embedding model")
+            self.gguf_writer.add_pooling_type(gguf.PoolingType.MEAN)
 
     def _get_cls_out_tensor(self, data_torch: Tensor) -> Tensor:
         # extract "yes" and "no" tokens from the output lm_head tensor
@@ -11315,6 +11330,11 @@ def parse_args() -> argparse.Namespace:
               "Default these modules are not included.")
     )
 
+    parser.add_argument(
+        "--embedding", action="store_true",
+        help="Treat model as an embedding model and set pooling type to MEAN. Use this for embedding models like VoyageAI models.",
+    )
+
     args = parser.parse_args()
     if not args.print_supported_models and args.model is None:
         parser.error("the following arguments are required: model")
@@ -11452,7 +11472,8 @@ def main() -> None:
                                      split_max_size=split_str_to_n_bytes(args.split_max_size), dry_run=args.dry_run,
                                      small_first_shard=args.no_tensor_first_split,
                                      remote_hf_model_id=hf_repo_id, disable_mistral_community_chat_template=disable_mistral_community_chat_template,
-                                     sentence_transformers_dense_modules=args.sentence_transformers_dense_modules
+                                     sentence_transformers_dense_modules=args.sentence_transformers_dense_modules,
+                                     force_embedding=args.embedding
                                      )
 
         if args.vocab_only:

@@ -34,22 +34,85 @@ If you want to convert a model directly from HuggingFace to GGUF format (e.g., e
 Use the `convert_hf_to_gguf.py` script with the `--remote` flag to convert directly from HuggingFace:
 
 ```bash
-# Example: Converting voyageai/voyage-4-nano
-uv run convert_hf_to_gguf.py --remote voyageai/voyage-4-nano
+# Example: Converting voyageai/voyage-4-nano (embedding model)
+uv run convert_hf_to_gguf.py --remote voyageai/voyage-4-nano --embedding
 
 # Or with python directly
-python convert_hf_to_gguf.py --remote voyageai/voyage-4-nano
+python convert_hf_to_gguf.py --remote voyageai/voyage-4-nano --embedding
+
+# For regular language models (no --embedding flag needed)
+uv run convert_hf_to_gguf.py --remote HuggingFaceTB/SmolLM2-1.7B-Instruct
 ```
 
 The script will:
 - Download the model config and tokenizer from HuggingFace
 - Stream the safetensors weights remotely without downloading to disk
-- Convert to GGUF format
+- Convert to GGUF format with proper pooling configuration (if `--embedding` is used)
 - Output a file like `voyageai-voyage-4-nano-bf16.gguf`
 
-### Importing the model into `ollama`
+**Important:** Use the `--embedding` flag for embedding models (like VoyageAI, sentence-transformers models, etc.) to properly configure the pooling type for embedding extraction.
 
-Once you have this file, change the filename accordingly in `Modelfile`, and run `ollama create voyage-4-nano` (or whatever name you want).
+### Using with Ollama
+
+After converting, you can import and use the model with Ollama:
+
+#### Import the Model
+
+```bash
+# Create a Modelfile
+cat > Modelfile << EOF
+FROM ./voyageai-voyage-4-nano-bf16.gguf
+EOF
+
+# Import into Ollama
+ollama create voyage-4-nano -f Modelfile
+```
+
+#### Use for Embeddings
+
+```bash
+# Generate embeddings via API
+curl http://localhost:11434/api/embed -d '{
+  "model": "voyage-4-nano",
+  "input": "Your text to embed here"
+}'
+
+# Multiple texts
+curl http://localhost:11434/api/embed -d '{
+  "model": "voyage-4-nano",
+  "input": ["First text", "Second text", "Third text"]
+}'
+```
+
+#### Python Example
+
+```python
+import ollama
+import numpy as np
+
+# Single embedding
+response = ollama.embed(model='voyage-4-nano', input='Hello, world!')
+embedding = response['embeddings'][0]
+print(f"Embedding dimension: {len(embedding)}")  # 2048 for voyage-4-nano
+
+# Similarity search
+def cosine_similarity(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+query = "What is machine learning?"
+docs = [
+    "Machine learning is a subset of AI",
+    "I love eating pizza",
+    "Neural networks are used in deep learning"
+]
+
+query_emb = ollama.embed(model='voyage-4-nano', input=query)['embeddings'][0]
+doc_embs = ollama.embed(model='voyage-4-nano', input=docs)['embeddings']
+
+for doc, emb in zip(docs, doc_embs):
+    sim = cosine_similarity(query_emb, emb)
+    print(f"{sim:.4f} - {doc}")
+```
 
 ### Additional Options
 
