@@ -1,0 +1,1 @@
+FROM ./voyageai-voyage-4-nano-bf16.gguf
