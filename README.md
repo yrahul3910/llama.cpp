@@ -315,6 +315,62 @@ The Hugging Face platform provides a variety of online tools for converting, qua
 
 To learn more about model quantization, [read this documentation](tools/quantize/README.md)
 
+### Converting Models from HuggingFace
+
+If you want to convert a model directly from HuggingFace to GGUF format (e.g., embedding models like VoyageAI's models), follow these steps:
+
+#### Prerequisites
+
+1. Make sure all required files are present (restore if using a cloned repo):
+   ```bash
+   git restore .
+   ```
+
+2. Install Python dependencies with `uv` (or use `pip`):
+   ```bash
+   # Using uv (recommended)
+   uv pip install -r requirements.txt --index-strategy unsafe-best-match
+
+   # Or using pip
+   pip install -r requirements.txt
+   ```
+
+#### Converting a Model
+
+Use the `convert_hf_to_gguf.py` script with the `--remote` flag to convert directly from HuggingFace:
+
+```bash
+# Example: Converting voyageai/voyage-4-nano
+uv run convert_hf_to_gguf.py --remote voyageai/voyage-4-nano
+
+# Or with python directly
+python convert_hf_to_gguf.py --remote voyageai/voyage-4-nano
+```
+
+The script will:
+- Download the model config and tokenizer from HuggingFace
+- Stream the safetensors weights remotely without downloading to disk
+- Convert to GGUF format
+- Output a file like `voyageai-voyage-4-nano-bf16.gguf`
+
+#### Additional Options
+
+```bash
+# Convert with specific output type
+uv run convert_hf_to_gguf.py --remote MODEL_ID --outtype f16
+
+# Convert from local directory
+uv run convert_hf_to_gguf.py /path/to/model
+
+# See all options
+uv run convert_hf_to_gguf.py --help
+```
+
+**Note:** For gated models, set your HuggingFace token:
+```bash
+export HF_TOKEN=your_token_here
+```
+
 ## [`llama-cli`](tools/cli)
 
 #### A CLI tool for accessing and experimenting with most of `llama.cpp`'s functionality.
