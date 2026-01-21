@@ -4311,6 +4311,14 @@ class Qwen3Model(Qwen2Model):
             # skip multimodal tensors
             return []
 
+        # Handle embedding model output projection (e.g., voyageai models)
+        if name == "linear.weight":
+            output_head = (
+                gguf.TENSOR_NAMES[gguf.MODEL_TENSOR.OUTPUT] + ".weight",
+                data_torch,
+            )
+            return [output_head]
+
         if self.is_rerank:
             is_tied_head = self.is_tied_embeddings and "embed_tokens" in name
             is_real_head = not self.is_tied_embeddings and "lm_head" in name
